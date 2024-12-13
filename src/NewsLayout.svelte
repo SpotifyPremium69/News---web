@@ -3,6 +3,52 @@
   export let articles = [];
   export let onFavoriteClick = () => {};
   export let onReadMore = () => {};
+
+  import {
+    favorites,
+    savedGroups,
+    addArticleToGroup,
+    removeArticleFromGroup,
+  } from "./NewsLogic";
+
+  let creatingNewGroup = {}; // Stav pro zobrazení pole pro nový group per článek
+  let newGroupName = {};
+  let selectedGroup = {};
+
+  function handleAddToGroup(groupName, article) {
+    if (groupName === "new") {
+      // Inicializace stavu pro konkrétní článek
+      creatingNewGroup[article.url] = true;
+      if (!newGroupName[article.url]) {
+        newGroupName[article.url] = "";
+      }
+    } else if (groupName) {
+      addArticleToGroup(groupName, article); // Přidá článek do existující skupiny
+    }
+    selectedGroup[article.url] = "";
+  }
+
+  function createNewGroup(article) {
+    if (newGroupName[article.url]?.trim()) {
+      // Vytvoří novou skupinu a přidá článek
+      savedGroups.update((groups) => {
+        if (!groups[newGroupName[article.url]]) {
+          groups[newGroupName[article.url]] = [];
+        }
+        if (
+          !groups[newGroupName[article.url]].some((a) => a.url === article.url)
+        ) {
+          groups[newGroupName[article.url]].push(article);
+        }
+        return { ...groups };
+      });
+
+      // Reset stavu pro tento článek
+      newGroupName[article.url] = "";
+      creatingNewGroup[article.url] = false;
+      selectedGroup[article.url] = "";
+    }
+  }
 </script>
 
 {#if articles.length === 0}
@@ -31,9 +77,57 @@
             <button
               class="save-button"
               on:click={() => onFavoriteClick(article)}
+              aria-label="Toggle Favorite"
             >
-              &#128278; <!-- Ikona záložky -->
+              {#if $favorites.some((fav) => fav.url === article.url)}
+                <!-- Vyplněná ikona záložky -->
+                <i class="fas fa-bookmark saved"></i>
+              {:else}
+                <!-- Prázdná ikona záložky -->
+                <i class="far fa-bookmark"></i>
+              {/if}
             </button>
+            {#if $favorites.some((fav) => fav.url === article.url)}
+              <label>
+                Add to group:
+                <select
+                  bind:value={selectedGroup[article.url]}
+                  on:change={(e) => handleAddToGroup(e.target.value, article)}
+                >
+                  <option value="" disabled selected>Select group</option>
+                  {#each Object.keys($savedGroups) as group}
+                    <option value={group}>{group}</option>
+                  {/each}
+                  <option value="new">Create new group</option>
+                </select>
+              </label>
+              {#if creatingNewGroup[article.url]}
+                <div class="new-group-input">
+                  <input
+                    type="text"
+                    placeholder="Enter new group name"
+                    bind:value={newGroupName[article.url]}
+                    on:keydown={(e) =>
+                      e.key === "Enter" && createNewGroup(article)}
+                  />
+                  <button
+                    class="button button--create"
+                    on:click={createNewGroup(article)}>Create</button
+                  >
+                </div>
+              {/if}
+
+              {#each Object.keys($savedGroups) as group}
+                {#if $savedGroups[group].some((a) => a.url === article.url)}
+                  <button
+                    class="button button--remove"
+                    on:click={() => removeArticleFromGroup(group, article)}
+                  >
+                    Remove from "{group}"
+                  </button>
+                {/if}
+              {/each}
+            {/if}
           </div>
         </div>
 
@@ -112,14 +206,18 @@
   .save-button {
     background: none;
     border: none;
-    font-size: 1.2rem;
-    color: #28a745;
     cursor: pointer;
+    font-size: 1.5rem;
+    color: #2d2d2d;
     transition: color 0.3s ease;
   }
 
   .save-button:hover {
-    color: #218838;
+    color: #888;
+  }
+
+  .save-button .saved {
+    color: #28a745; /* Zelená barva pro uložený článek */
   }
 
   /* Obrázek */
@@ -128,5 +226,57 @@
     height: 100px;
     object-fit: cover;
     border-radius: 5px;
+  }
+
+  select {
+    margin-top: 5px;
+    padding: 5px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+  }
+
+  .button {
+    padding: 8px 12px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: bold;
+    transition:
+      background-color 0.3s ease,
+      color 0.3s ease;
+  }
+
+  .button--create {
+    background-color: #28a745; /* Zelená barva */
+    color: white;
+  }
+
+  .button--create:hover {
+    background-color: #218838; /* Tmavší zelená */
+  }
+
+  /* Tlačítko Remove */
+  .button--remove {
+    background-color: #dc3545; /* Červená barva */
+    color: white;
+  }
+
+  .button--remove:hover {
+    background-color: #c82333; /* Tmavší červená */
+  }
+
+  /* Specifické styly pro input */
+  .new-group-input {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  .new-group-input input {
+    padding: 5px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    font-size: 0.9rem;
   }
 </style>
