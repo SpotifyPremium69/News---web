@@ -7,12 +7,15 @@
     savedGroups,
     recentArticles,
     recentSearches,
+    quickSearches,
     loading,
     error,
+    languages,
+    addQuickSearch,
+    removeQuickSearch,
+    getLanguageName,
     toggleFavorite,
     getDateLimits,
-    toggleArticleInGroup,
-    addArticleToGroup,
     deleteGroup,
     renameGroup,
     toggleRecent,
@@ -28,7 +31,7 @@
   let toDate = "";
   let maxDate = ""; // Maximální datum (dnes)
   let minDate = ""; // Minimální datum (před 30 dny)
-  let selectedDate = "";
+  let selectedLanguage = "en";
   let currentScreen = "home";
   let currentGroup = null; // Aktuální vybraná skupina
   let allGroups = $savedGroups;
@@ -36,6 +39,12 @@
   let newGroupName = "";
   let editedGroupName = "";
   let editingGroup = null;
+  let isEditing = false;
+  let editingIndex = null;
+  let editedKeyword = "";
+  let editedFromDate = "";
+  let editedToDate = "";
+  let editedLanguage = "";
 
   $: allGroups = $savedGroups;
 
@@ -89,32 +98,79 @@
     }
   }
 
+  function openEditForm(index, keyword, fromDate, toDate, language) {
+    isEditing = true;
+    editingIndex = index;
+    editedKeyword = keyword;
+    editedFromDate = fromDate || "";
+    editedToDate = toDate || "";
+    editedLanguage = language || "en";
+  }
+
+  // Funkce pro uložení úpravy
+  function saveQuickSearch(index) {
+    if (editedKeyword.trim()) {
+      quickSearches.update((searches) => {
+        searches[index] = {
+          keyword: editedKeyword,
+          fromDate: editedFromDate,
+          toDate: editedToDate,
+          language: editedLanguage,
+        };
+        return searches;
+      });
+      cancelEditing();
+    }
+  }
+
+  // Funkce pro smazání QuickSearch
+  function deleteQuickSearch(index) {
+    quickSearches.update((searches) => searches.filter((_, i) => i !== index));
+  }
+
   function handleSearch() {
-    searchArticles(localKeyword, localDate);
+    searchArticles(localKeyword, fromDate, toDate, selectedLanguage);
+
     recentSearches.update((current) => {
-      // Kontrola, jestli hledání už existuje
       const exists = current.find(
-        (search) => search.keyword === localKeyword && search.date === localDate
+        (search) =>
+          search.keyword === localKeyword &&
+          search.fromDate === fromDate &&
+          search.toDate === toDate &&
+          search.language === selectedLanguage
       );
 
       if (!exists) {
-        addRecentSearch(localKeyword, localDate);
-        return [{ keyword: localKeyword, date: localDate }, ...current].slice(
-          0,
-          5
-        ); // Max 5 položek
+        addRecentSearch(localKeyword, fromDate, toDate, selectedLanguage);
+        return [
+          {
+            keyword: localKeyword,
+            fromDate,
+            toDate,
+            language: selectedLanguage,
+          },
+          ...current,
+        ].slice(0, 5); // Max 5 položek
       }
 
       return current;
     });
+
     currentScreen = "articles";
   }
 
-  function searchFromRecent(keyword, date) {
-    localKeyword = keyword; // Nastavíme lokální hodnoty
-    localDate = date;
-    searchArticles(keyword, date); // Spustíme vyhledávání
-    currentScreen = "articles"; // Přepneme na zobrazení článků
+  function searchFromRecent({ keyword, fromDate, toDate, language }) {
+    // Nastavíme lokální hodnoty
+    localKeyword = keyword || "";
+    fromDate = fromDate || "";
+    toDate = toDate || "";
+    selectedLanguage = language || "en";
+
+    // Spustíme vyhledávání
+    searchArticles(localKeyword, fromDate, toDate, selectedLanguage);
+
+    // Přepneme na zobrazení článků
+    currentScreen = "articles";
   }
 
   function handleNavigate(screen) {
@@ -176,57 +232,171 @@
   {#if currentScreen === "home"}
     <section class="home">
       <div class="form-container">
-        <h1>Fresh News</h1>
-        <label for="keyword">Search by keyword:</label>
-        <div class="input-container">
-          <span class="icon">🔍</span>
-          <input
-            id="keyword"
-            type="text"
-            placeholder="Keyword:"
-            bind:value={localKeyword}
-          />
+        <h1 class="main-title">Fresh News</h1>
+
+        <!-- Flexbox container pro filtry a tlačítka -->
+        <div class="search-form">
+          <!-- Klíčové slovo -->
+          <div class="input-container keyword">
+            <label for="keyword">Search by keyword:</label>
+            <div class="input-with-icon">
+              <span class="icon">🔍</span>
+              <input
+                id="keyword"
+                type="text"
+                placeholder="Enter keyword"
+                bind:value={localKeyword}
+                on:keydown={(e) => e.key === "Enter" && handleSearch()}
+              />
+            </div>
+          </div>
+
+          <!-- Datum -->
+          <div class="input-container">
+            <label for="fromDate">From:</label>
+            <input
+              id="fromDate"
+              type="date"
+              bind:value={fromDate}
+              min={minDate}
+              max={maxDate}
+              on:input={handleFromDateInput}
+              placeholder="dd.mm.rrrr"
+            />
+          </div>
+
+          <div class="input-container">
+            <label for="toDate">To:</label>
+            <input
+              id="toDate"
+              type="date"
+              bind:value={toDate}
+              min={fromDate || minDate}
+              max={maxDate}
+              on:input={handleToDateInput}
+              placeholder="dd.mm.rrrr"
+            />
+          </div>
+
+          <div class="input-container">
+            <label for="language">Language:</label>
+            <select id="language" bind:value={selectedLanguage}>
+              <option value="" disabled>Select language</option>
+              {#each languages as lang}
+                <option value={lang.code}>{lang.name}</option>
+              {/each}
+            </select>
+          </div>
+
+          <!-- Tlačítka -->
+          <div class="button-container">
+            <button
+              class="clear-button"
+              on:click={() => {
+                localKeyword = "";
+                fromDate = "";
+                toDate = "";
+              }}
+            >
+              Clear Filters
+            </button>
+
+            <button
+              class="quick-save"
+              on:click={() =>
+                addQuickSearch(
+                  localKeyword,
+                  fromDate,
+                  toDate,
+                  selectedLanguage
+                )}
+            >
+              Save as QuickSearch
+            </button>
+          </div>
         </div>
 
-        <label for="date">Select date:</label>
-        <div class="date-range-container">
-          <label for="fromDate">From:</label>
-          <input
-            id="fromDate"
-            type="date"
-            bind:value={fromDate}
-            min={minDate}
-            max={maxDate}
-            on:input={handleFromDateInput}
-            placeholder="dd.mm.rrrr"
-          />
-
-          <label for="toDate">To:</label>
-          <input
-            id="toDate"
-            type="date"
-            bind:value={toDate}
-            min={fromDate || minDate}
-            max={maxDate}
-            on:input={handleToDateInput}
-            placeholder="dd.mm.rrrr"
-          />
-        </div>
-
-        <div class="buttons">
-          <button class="search-button" on:click={handleSearch}>Search</button>
-          <button
-            class="clear-button"
-            on:click={() => {
-              localKeyword = "";
-              fromDate = "";
-              toDate = "";
-            }}
+        <!-- Velké tlačítko Search pod filtry -->
+        <div class="search-button-container">
+          <button class="big-search-button" on:click={handleSearch}
+            >Search</button
           >
-            Clear filters
-          </button>
+        </div>
+
+        <div class="quicksearch-container">
+          <h2>Your Quick Searches</h2>
+          <div class="quicksearch-tags">
+            {#each $quickSearches as search, index}
+              <div class="quicksearch-tag">
+                <!-- Hlavní obsah -->
+                <span
+                  class="quicksearch-text"
+                  on:click={() => searchFromRecent(search)}
+                >
+                  {search.keyword || "None"}
+                </span>
+                <!-- Ikony pro editaci a smazání -->
+                <div class="quicksearch-icons-area">
+                  <div class="quicksearch-icons">
+                    <button
+                      class="icon-button edit"
+                      on:click={() =>
+                        openEditForm(
+                          index,
+                          search.keyword,
+                          search.fromDate,
+                          search.toDate,
+                          search.language
+                        )}
+                    >
+                      <i class="fas fa-pen"></i>
+                    </button>
+                    <button
+                      class="icon-button delete"
+                      on:click={() => deleteQuickSearch(index)}
+                    >
+                      <i class="fas fa-trash"></i>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            {/each}
+          </div>
         </div>
       </div>
+
+      {#if isEditing}
+        <div class="modal-overlay" on:click={() => closeEditForm()}>
+          <div class="modal-content" on:click|stopPropagation>
+            <h3>Edit QuickSearch</h3>
+            <label>Keyword:</label>
+            <input type="text" bind:value={editedKeyword} />
+
+            <label>From Date:</label>
+            <input type="date" bind:value={editedFromDate} />
+
+            <label>To Date:</label>
+            <input type="date" bind:value={editedToDate} />
+
+            <label>Language:</label>
+            <select bind:value={editedLanguage}>
+              <option value="" disabled>Select language</option>
+              {#each languages as lang}
+                <option value={lang.code}>{lang.name}</option>
+              {/each}
+            </select>
+
+            <div class="modal-buttons">
+              <button class="save-button" on:click={() => saveQuickSearch()}>
+                Save
+              </button>
+              <button class="cancel-button" on:click={() => closeEditForm()}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      {/if}
     </section>
   {:else if currentScreen === "articles"}
     <section class="articles">
@@ -243,6 +413,7 @@
               type="text"
               placeholder="Keyword:"
               bind:value={localKeyword}
+              on:keydown={(e) => e.key === "Enter" && handleSearch()}
             />
           </div>
         </div>
@@ -272,6 +443,16 @@
             on:input={handleToDateInput}
             placeholder="dd.mm.rrrr"
           />
+        </div>
+
+        <div class="input-container">
+          <label for="language">Language:</label>
+          <select id="language" bind:value={selectedLanguage}>
+            <option value="" disabled>Select language</option>
+            {#each languages as lang}
+              <option value={lang.code}>{lang.name}</option>
+            {/each}
+          </select>
         </div>
 
         <!-- Tlačítka -->
@@ -324,10 +505,15 @@
           {#each $recentSearches as search}
             <button
               class="search-card"
-              on:click={() => searchFromRecent(search.keyword, search.date)}
+              on:click={() => searchFromRecent(search)}
             >
               <p><strong>Keyword:</strong> {search.keyword || "None"}</p>
-              <p><strong>Date:</strong> {search.date || "None"}</p>
+              <p><strong>From:</strong> {search.fromDate || "None"}</p>
+              <p><strong>To:</strong> {search.toDate || "None"}</p>
+              <p>
+                <strong>Language:</strong>
+                {getLanguageName(search.language) || "English"}
+              </p>
             </button>
           {/each}
         </div>
@@ -446,26 +632,181 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    height: 100vh;
+    height: 83vh;
     background-color: #ddd; /* Světle šedé pozadí */
     margin: 0;
   }
 
-  /* Kontejner formuláře */
   .form-container {
     background-color: #fff;
-    padding: 30px 40px;
+    padding: 30px;
     border-radius: 8px;
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2); /* Jemný stín */
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
     text-align: center;
+    max-width: 1200px;
     width: 100%;
-    max-width: 400px;
+    margin: 0 auto;
   }
 
-  .form-container h1 {
-    font-size: 2rem;
+  .main-title {
+    font-size: 2.5rem;
+    font-weight: bold;
     margin-bottom: 20px;
     color: #333;
+    text-align: center;
+  }
+
+  /* Každý filtr */
+  .input-container {
+    flex: 1;
+    min-width: 150px;
+  }
+
+  .input-container input,
+  .input-container select {
+    width: 100%;
+  }
+
+  /* Tlačítka */
+
+  .clear-button,
+  .quick-save {
+    padding: 10px 15px;
+    font-size: 0.9rem;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+  }
+
+  .clear-button {
+    background-color: #3a3a3a;
+    color: white;
+  }
+
+  .clear-button:hover {
+    background-color: #218838;
+  }
+
+  .quick-save {
+    background-color: #3a3a3a;
+    color: white;
+  }
+
+  .quick-save:hover {
+    background-color: #218838;
+  }
+
+  /* Velké tlačítko Search */
+  .search-button-container {
+    margin-top: 20px;
+    text-align: center;
+  }
+
+  .big-search-button {
+    width: 70%;
+    padding: 15px 0;
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: white;
+    background-color: #28a745;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+  }
+
+  .big-search-button:hover {
+    background-color: #218838;
+  }
+
+  .quicksearch-container {
+    margin-top: 30px;
+    text-align: center;
+  }
+
+  .quicksearch-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+  }
+
+  .quicksearch-tag {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+    justify-content: space-between;
+    background-color: #3a3a3a;
+    padding: 8px 12px;
+    padding-right: 100px;
+    border-top-left-radius: 20px;
+    border-bottom-left-radius: 20px;
+    border-radius: 20px;
+    border: 1px solid #ccc;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+    overflow: hidden;
+  }
+
+  .quicksearch-icons-area {
+    background-color: #e0e4e8; /* Barva pozadí rezervovaného místa */
+    width: 100px; /* Šířka rezervovaného místa */
+    border-radius: 20px;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.3s ease;
+  }
+
+  .quicksearch-tag:hover {
+    background-color: #218838;
+  }
+
+  /* Text QuickSearch */
+  .quicksearch-text {
+    flex: 1; /* Zajistí, že text zabere dostupný prostor */
+    text-align: left;
+    padding-right: 10px;
+    color: white;
+    z-index: 1; /* Text zůstane nad ikonami */
+  }
+
+  /* Ikony pro editaci a smazání QuickSearch */
+
+  .quicksearch-icons {
+    position: absolute;
+    margin-top: 5px;
+    display: flex;
+    opacity: 0; /* Skryté ve výchozím stavu */
+    transition: opacity 0.3s ease;
+    z-index: 2;
+  }
+
+  .quicksearch-tag:hover .quicksearch-icons {
+    opacity: 1;
+  }
+
+  /* Specifické styly ikon QuickSearch */
+  .quicksearch-icons .icon-button {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 0.9rem; /* Menší velikost ikon */
+    color: #555;
+    transition: color 0.2s ease;
+  }
+
+  .quicksearch-icons .icon-button.edit:hover {
+    color: #ffc107; /* Žlutá barva pro editaci */
+  }
+
+  .quicksearch-icons .icon-button.delete:hover {
+    color: #dc3545; /* Červená barva pro mazání */
   }
 
   label {
@@ -491,9 +832,22 @@
     font-size: 1rem;
   }
 
+  .input-container select {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    font-size: 1rem;
+  }
+
+  .input-container.keyword {
+    flex: 2; /* Zvětší tento input na dvojnásobek */
+    min-width: 300px; /* Zajistí minimální šířku */
+  }
+
   .input-container .icon {
     position: absolute;
-    top: 50%;
+    top: 60%;
     left: 10px;
     transform: translateY(-50%);
     color: #888;
@@ -507,14 +861,6 @@
     padding: 10px 15px;
     border-radius: 8px;
     border: 1px solid #ddd;
-  }
-
-  /* Tlačítka */
-  .buttons {
-    display: flex;
-    justify-content: center;
-    gap: 10px;
-    margin-top: 15px;
   }
 
   .button-container {
@@ -762,17 +1108,6 @@
   .buttons {
     display: flex;
     gap: 10px;
-    margin-top: 10px;
-  }
-
-  .date {
-    width: 10%;
-    height: 42px; /* Stejná výška jako tlačítka */
-    padding: 10px; /* Uvnitř pole */
-    border: 1px solid #ccc;
-    border-radius: 5px;
-    font-size: 1rem;
-    box-sizing: border-box;
     margin-top: 10px;
   }
 

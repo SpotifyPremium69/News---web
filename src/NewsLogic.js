@@ -17,13 +17,37 @@ export const favorites = writable(loadFromLocalStorage("favorites", []));
 export const savedGroups = writable(loadFromLocalStorage("savedGroups", {}));
 export const recentArticles = writable(loadFromLocalStorage("recentArticles")); 
 export const recentSearches = writable(loadFromLocalStorage("recentSearches"));
+export const quickSearches = writable(loadFromLocalStorage("quickSearches", []));
 export const loading = writable(false);
 export const error = writable(null);
+
+export const languages = [
+  { code: "en", name: "English" },
+  { code: "fr", name: "French" },
+  { code: "de", name: "German" },
+  { code: "es", name: "Spanish" },
+  { code: "it", name: "Italian" },
+  { code: "pt", name: "Portuguese" },
+  { code: "ru", name: "Russian" },
+  { code: "ar", name: "Arabic" },
+  { code: "zh", name: "Chinese" },
+  { code: "ja", name: "Japanese" },
+  { code: "ko", name: "Korean" },
+  { code: "tr", name: "Turkish" },
+  { code: "hi", name: "Hindi" },
+  { code: "sv", name: "Swedish" },
+  { code: "nl", name: "Dutch" },
+];
 
 savedGroups.subscribe((groups) => {
   localStorage.setItem("savedGroups", JSON.stringify(groups));
 });
 
+
+export function getLanguageName(code) {
+  const lang = languages.find((l) => l.code === code);
+  return lang ? lang.name : code; // Pokud nenajdeme, vrátí kód
+}
 
 function isValidArticle(article) {
   return (
@@ -33,6 +57,29 @@ function isValidArticle(article) {
     article.url &&
     article.urlToImage
   );
+}
+
+export function addQuickSearch(keyword, fromDate, toDate, language) {
+  quickSearches.update((current) => {
+    const newQuickSearch = {
+      id: Date.now(), // Jedinečné ID
+      keyword,
+      fromDate,
+      toDate,
+      language,
+    };
+    const updatedSearches = [...current, newQuickSearch].slice(0, 10); // Max 10 uložených
+    saveToLocalStorage("quickSearches", updatedSearches);
+    return updatedSearches;
+  });
+}
+
+export function removeQuickSearch(id) {
+  quickSearches.update((current) => {
+    const updatedSearches = current.filter((qs) => qs.id !== id);
+    saveToLocalStorage("quickSearches", updatedSearches);
+    return updatedSearches;
+  });
 }
 
 export function getDateLimits() {
@@ -135,18 +182,29 @@ export function toggleRecent(article) {
   });
 }
 
-export function addRecentSearch(keyword, date) {
+export function addRecentSearch(keyword, fromDate, toDate, language) {
   recentSearches.update((current) => {
+    const newSearch = {
+      keyword: keyword || "",
+      fromDate: fromDate || "",
+      toDate: toDate || "",
+      language: language || "en",
+    };
+
+    // Kontrola, jestli už existuje
     const exists = current.find(
-      (search) => search.keyword === keyword && search.date === date
+      (search) =>
+        search.keyword === newSearch.keyword &&
+        search.fromDate === newSearch.fromDate &&
+        search.toDate === newSearch.toDate &&
+        search.language === newSearch.language
     );
 
     if (!exists) {
-      const updatedSearches = [{ keyword, date }, ...current].slice(0, 5);
-      saveToLocalStorage("recentSearches", updatedSearches); // Uložení do Local Storage
-      return updatedSearches;
+      const updated = [newSearch, ...current].slice(0, 5); // Max 5 položek
+      saveToLocalStorage("recentSearches", updated); // Uložíme aktualizované
+      return updated;
     }
-
     return current;
   });
 }
@@ -201,14 +259,35 @@ export async function getRecommendedArticles() {
 }
 
 
-export async function searchArticles(keyword, date) {
+export async function searchArticles(keyword, fromDate, toDate, language = "en") {
   loading.set(true);
   error.set(null);
 
   try {
-    const data = await fetchArticlesFromAPI(keyword, date);
-    const validArticles = data.articles.filter(isValidArticle);
-    articles.set(validArticles || []);
+    const baseUrl = "https://newsapi.org/v2/everything";
+    const params = new URLSearchParams({
+      q: keyword || "",
+      from: fromDate || "",
+      to: toDate || "",
+      language: language || "en", // Přidáme jazyk jako filtr
+      apiKey: "e2d3b015ca494468a3e2c3fbca3f0a32",
+    });
+
+    const response = await fetch(`${baseUrl}?${params}`);
+    const data = await response.json();
+
+    if (data.status === "ok") {
+      const validArticles = data.articles.filter(
+        (article) =>
+          article.title &&
+          !article.title.includes("[Removed]") &&
+          article.description
+      );
+
+      articles.set(validArticles);
+    } else {
+      throw new Error(data.message || "Error fetching articles");
+    }
   } catch (err) {
     error.set(err.message);
   } finally {
